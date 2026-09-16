@@ -8,13 +8,15 @@
     @font-face {
         font-family: 'CustomFont';
         src: url('{{ $customFontRegular }}');
-        font-weight: normal;
+        font-weight: 400;
+        font-style: normal;
     }
     @if($customFontBold)
     @font-face {
         font-family: 'CustomFont';
         src: url('{{ $customFontBold }}');
-        font-weight: bold;
+        font-weight: 700;
+        font-style: normal;
     }
     @endif
     @endif
@@ -30,7 +32,6 @@
         width: {{ $widthPt }}pt;
         height: {{ $heightPt }}pt;
     }
-    /* Rectangle de fond opaque qui masque le texte original du template */
     .field-bg {
         position: absolute;
         overflow: hidden;
@@ -39,10 +40,14 @@
         position: absolute;
         overflow: hidden;
         white-space: pre-wrap;
-        /* petit padding interne pour que le texte ne colle pas aux bords */
-        padding: 1pt 2pt;
+        word-break: break-word;
+        overflow-wrap: anywhere;
         box-sizing: border-box;
-        font-family: '{{ $customFontRegular ? 'CustomFont' : ($variable->font_family ?? 'DejaVu Sans') }}', sans-serif;
+        line-height: 0.95;
+        letter-spacing: 0;
+        text-rendering: optimizeLegibility;
+        font-kerning: normal;
+        font-synthesis-weight: none;
     }
 </style>
 </head>
@@ -56,36 +61,43 @@
                 if ($variable->type === 'checkbox') {
                     $value = $value ? '☑' : '☐';
                 }
+
                 $left = ($variable->position_x / 100) * $widthPt;
                 $top = ($variable->position_y / 100) * $heightPt;
                 $boxWidth = ($variable->box_width / 100) * $widthPt;
                 $boxHeight = ($variable->box_height / 100) * $heightPt;
 
                 $bgColor = $variable->background_color ?? '#FFFFFF';
+                $fontFamily = $customFontRegular ? 'CustomFont' : ($variable->font_family ?? 'DejaVu Sans');
+                $fontWeight = preg_match('/\b(bold|heavy|black|semibold|demi)\b/i', (string) $fontFamily)
+                    ? 700
+                    : 400;
 
-                // Taille de police
-                // auto_font_size = true → calcule à partir de la hauteur de la zone
-                // (facteur 0.62 pour laisser un peu de padding haut/bas)
+                $text = trim((string) $value);
+                $normalizedText = preg_replace('/\s+/', ' ', $text);
+                $charCount = mb_strlen((string) $normalizedText, 'UTF-8');
+
                 $auto = $variable->auto_font_size ?? true;
                 if ($auto) {
-                    $computed = $boxHeight * 0.62;
-                    // garde des bornes raisonnables
-                    $fontSize = max(6, min(72, $computed));
-                    // si le texte est très long, on réduit un peu pour qu'il tienne en largeur
-                    $len = mb_strlen((string) $value);
-                    if ($len > 0 && $boxWidth > 0) {
-                        // estimation grossière : ~0.55 * fontSize de largeur par caractère
-                        $estWidth = $len * $fontSize * 0.55;
-                        if ($estWidth > $boxWidth * 1.15) {
-                            $fontSize = max(6, $boxWidth / ($len * 0.55));
-                        }
+                    $safeBoxWidth = max($boxWidth, 1);
+                    $safeBoxHeight = max($boxHeight, 1);
+                    $baseFontSize = min($safeBoxHeight * 0.72, $safeBoxWidth * 0.22);
+
+                    $estimatedCharsPerLine = max(1, (int) floor($safeBoxWidth / max(4, $baseFontSize * 0.58)));
+                    $estimatedLines = max(1, (int) ceil($charCount / max(1, $estimatedCharsPerLine)));
+
+                    $fitByHeight = $safeBoxHeight / max(1, $estimatedLines * 1.18);
+                    $fitByWidth = $safeBoxWidth / max(1, $charCount * 0.58);
+                    $fontSize = max(6, min(72, min($fitByHeight, $fitByWidth, $baseFontSize)));
+
+                    if ($charCount === 0) {
+                        $fontSize = max(6, min(72, $safeBoxHeight * 0.62));
                     }
                 } else {
-                    $fontSize = $variable->font_size ?? 12;
+                    $fontSize = (float) ($variable->font_size ?? 12);
                 }
             @endphp
 
-            {{-- 1. Rectangle opaque qui cache le texte original du template --}}
             <div class="field-bg" style="
                 left: {{ $left }}pt;
                 top: {{ $top }}pt;
@@ -94,16 +106,17 @@
                 background-color: {{ $bgColor }};
             "></div>
 
-            {{-- 2. Texte de la variable par-dessus --}}
             <div class="field" style="
                 left: {{ $left }}pt;
                 top: {{ $top }}pt;
                 width: {{ $boxWidth }}pt;
                 height: {{ $boxHeight }}pt;
-                font-family: '{{ $variable->font_family ?? 'DejaVu Sans' }}', sans-serif;
+                font-family: '{{ $fontFamily }}', sans-serif;
                 font-size: {{ round($fontSize, 1) }}pt;
+                font-weight: {{ $fontWeight }};
                 color: {{ $variable->font_color }};
-                text-align: {{ $variable->text_align }};
+                text-align: {{ $variable->text_align ?? 'left' }};
+                padding: 0 0.5pt;
             ">{{ $value }}</div>
         @endforeach
     </div>
